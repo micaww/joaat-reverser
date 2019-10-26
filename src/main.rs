@@ -1,106 +1,85 @@
-extern crate clap;
-extern crate hex;
+mod joaat;
 
 use clap::{App, Arg, ArgMatches};
 
-const MIN_CHAR: char = 'a';
-const MAX_CHAR: char = 'z';
+enum Action {
+    None,
+    Hash(String),
+    Reverse(u32, usize)
+}
 
 fn main() {
-    let matches = App::new("joaat-reverser")
-        .version("0.1.0")
+    let mut app = App::new("joaat-reverser")
         .author("Micah Allen")
-        .arg(Arg::with_name("TARGET")
-            .help("The target hash to reverse")
-            .required(true)
-            .index(1))
-        .arg(Arg::with_name("INPUT_LENGTH")
-            .help("The length of the input to find")
-            .required(true)
-            .index(2))
-        .get_matches();
+        .arg(Arg::with_name("input")
+            .short("i")
+            .long("input")
+            .value_name("INPUT")
+            .takes_value(true)
+            .help("The string to hash"))
+        .arg(Arg::with_name("target")
+            .short("t")
+            .long("target")
+            .value_name("TARGET_HASH")
+            .takes_value(true)
+            .help("The hash to reverse"))
+        .arg(Arg::with_name("length")
+            .short("l")
+            .long("length")
+            .value_name("INPUT_LENGTH")
+            .takes_value(true)
+            .help("The length of the pre-images to find"));
 
-    if let Ok((target, input_length)) = parse_args(matches) {
-        let mut buffer = vec!['\0'; input_length];
+    let matches = app.clone().get_matches();
 
-        let hash = undo_finalization(target);
+    let action = parse_args(&matches);
 
-        // then search recursively until we find all matching inputs
-        reverse(hash, &mut buffer, input_length - 1);
+    match action {
+        Action::Hash(input) => {
+            let hash = joaat::hash(&input);
+
+            println!("Jenkins' one-at-a-time hash for \"{}\":", input);
+            println!("Hexadecimal: 0x{:X}", hash);
+            println!("Decimal: {}", hash);
+        },
+        Action::Reverse(target, len) => {
+            let start = std::time::Instant::now();
+
+            let preimages = joaat::find_preimages(target, len);
+
+            preimages.iter()
+                .for_each(|v| println!("{}", v));
+
+            println!("Finished! Took {:?}", start.elapsed());
+        },
+        Action::None => {
+            app.print_help().unwrap();
+        }
     }
 }
 
-fn reverse(mut hash: u32, buffer: &mut[char], depth: usize) {
-    // invert the hash mixing step
-    hash ^= (hash >> 6) ^ (hash >> 12) ^ (hash >> 18) ^ (hash >> 24) ^ (hash >> 30);
-    hash = hash.wrapping_mul(0xC00FFC01); // inverse of hash += hash << 10;
+fn parse_args(matches: &ArgMatches) -> Action {
+    if let Some(input) = matches.value_of("input") {
+        Action::Hash(String::from(input))
+    } else {
+        let has_target = matches.is_present("target");
+        let has_length = matches.is_present("length");
 
-    // for the lowest three levels, abort early if no solution is possible
-    let max_char = MAX_CHAR as u32;
-    let min_char = MIN_CHAR as u32;
-    match depth {
-        0 => {
-            if hash < min_char || hash > max_char {
-                return;
+        if has_target && has_length {
+            let target = matches.value_of("target").unwrap().parse::<u32>().expect("Please enter a valid hash to reverse.");
+            let input_length = matches.value_of("length").unwrap().parse::<usize>().expect("Please enter a valid input length.");
+
+            if input_length < 1 {
+                panic!("Input length must be greater than 0.");
             }
 
-            buffer[0] = hash as u8 as char;
-            found_possibility(buffer);
-            return;
+            Action::Reverse(target, input_length)
+        } else if has_target && !has_length {
+            panic!("You must provide an input length to reverse a hash using the -l argument.");
+        } else if has_length && !has_target {
+            panic!("You must provide the hash to be reversed using the -t argument.");
+        } else {
+            Action::None
         }
-        1 => {
-            if hash > max_char * 1043 {
-                return;
-            }
-        }
-        2 => {
-            if hash > max_char * 1084746 {
-                return;
-            }
-        }
-        _ => {}
     }
-
-    // try all possible values for this byte
-    for ch in min_char..max_char {
-        buffer[depth] = ch as u8 as char;
-        reverse(hash.wrapping_sub(ch), buffer, depth - 1);
-    }
-}
-
-fn parse_args(matches: ArgMatches) -> Result<(u32, usize), ()> {
-    let target_string = matches.value_of("TARGET").unwrap();
-    let target = match target_string.parse::<u32>() {
-        Ok(a) => a,
-        Err(_) => {
-             hex::decode(target_string);
-            return Err(());
-        }
-    };
-    let input_length = match matches.value_of("INPUT_LENGTH").unwrap().parse::<usize>() {
-        Ok(a) => a,
-        Err(_) => {
-            println!("Enter a valid expected input length.");
-            return Err(());
-        }
-    };
-
-    if input_length < 1 {
-        println!("Input length must be greater than 0.");
-        return Err(());
-    }
-
-    Ok((target, input_length))
-}
-
-fn undo_finalization(mut hash: u32) -> u32 {
-    hash = hash.wrapping_mul(0x3FFF8001); // inverse of hash += hash << 15;
-    hash ^= (hash >> 11) ^ (hash >> 22);
-    hash = hash.wrapping_mul(0x38E38E39); // inverse of hash += hash << 3;
-    hash
-}
-
-fn found_possibility(input: &[char]){
-    let str: String = input.iter().collect();
-    println!("{}", str);
 }
