@@ -47,8 +47,9 @@ fn main() {
 
             let preimages = joaat::find_preimages(target, len);
 
-            preimages.iter()
-                .for_each(|v| println!("{}", v));
+            for preimage in preimages {
+                println!("{}", preimage);
+            }
 
             println!("Finished! Took {:?}", start.elapsed());
         },

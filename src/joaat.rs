@@ -1,17 +1,23 @@
 use std::num::Wrapping;
+use std::thread::{self, JoinHandle};
 
 const MIN_CHAR: char = 'a';
 const MAX_CHAR: char = 'z';
 
 #[cfg(test)]
 mod tests {
-    use super::hash;
+    use super::*;
 
     #[test]
     fn hashing() {
         assert_eq!(hash("hello"), 0xc8fd181b);
         assert_eq!(hash("thisisasuperlongstringanditcontainssomereallycoolstuff"), 0x7adcfe15);
         assert_eq!(hash("Здравствуйте"), 0xe69f4c94);
+    }
+
+    #[test]
+    fn reverse_adder() {
+        assert_eq!(find_preimages(0xb779a091, 5), vec!["adder"]);
     }
 }
 
@@ -41,16 +47,36 @@ pub fn find_preimages(target: u32, input_length: usize) -> Vec<String> {
     hash ^= (hash >> 11) ^ (hash >> 22);
     hash *= Wrapping(0x38E3_8E39); // inverse of hash += hash << 3;
 
-    let mut output = Vec::new();
+    let max_char = MAX_CHAR as u32;
+    let min_char = MIN_CHAR as u32;
+
+    let threads: Vec<JoinHandle<Vec<String>>> = (min_char..=max_char)
+        .map(|c| thread::spawn(move || {
+            let mut output = Vec::new();
+
+            let mut buffer = vec!['\0'; input_length];
+
+            reverse(hash.0, &mut buffer, input_length - 1, Some(c), &mut output);
+
+            output
+        }))
+        .collect();
+
+    let output = threads.into_iter()
+        .map(|handle| handle.join().unwrap())
+        .flatten()
+        .collect();
+
+    /*
 
     let mut buffer = vec!['\0'; input_length];
 
-    reverse_recursive(hash.0, &mut buffer, input_length - 1, &mut output);
+    reverse_recursive(hash.0, &mut buffer, input_length - 1, &mut output);*/
 
     output
 }
 
-fn reverse_recursive(hash: u32, buffer: &mut [char], depth: usize, output: &mut Vec<String>) {
+fn reverse(hash: u32, buffer: &mut [char], depth: usize, force_char: Option<u32>, output: &mut Vec<String>) {
     let mut hash = Wrapping(hash);
 
     // invert the hash mixing step
@@ -87,9 +113,18 @@ fn reverse_recursive(hash: u32, buffer: &mut [char], depth: usize, output: &mut 
         _ => {}
     }
 
-    // try all possible values for this byte
-    for ch in min_char..max_char {
+    let mut recur = |ch| {
         buffer[depth] = ch as u8 as char;
-        reverse_recursive((hash - Wrapping(ch)).0, buffer, depth - 1, output);
+        reverse((hash - Wrapping(ch)).0, buffer, depth - 1, None, output);
+    };
+
+    if let Some(force_char) = force_char {
+        // we should use a specific char
+        recur(force_char);
+    } else {
+        // try all possible values for this byte
+        for ch in min_char..max_char {
+            recur(ch);
+        }
     }
 }
