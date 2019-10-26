@@ -2,10 +2,16 @@ mod joaat;
 
 use clap::{App, Arg, ArgMatches};
 
+const ALPHANUM_CHARS: [char; 62] = [
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+];
+
 enum Action {
     None,
     Hash(String),
-    Reverse(u32, usize)
+    Reverse(u32, usize, Vec<char>)
 }
 
 fn main() {
@@ -28,7 +34,13 @@ fn main() {
             .long("length")
             .value_name("INPUT_LENGTH")
             .takes_value(true)
-            .help("The length of the pre-images to find"));
+            .help("The length of the pre-images to find"))
+        .arg(Arg::with_name("characters")
+            .short("c")
+            .long("characters")
+            .value_name("CHARACTERS")
+            .takes_value(true)
+            .help("A list of characters to try. Default is alphanumeric."));
 
     let matches = app.clone().get_matches();
 
@@ -42,10 +54,10 @@ fn main() {
             println!("Hexadecimal: 0x{:X}", hash);
             println!("Decimal: {}", hash);
         },
-        Action::Reverse(target, len) => {
+        Action::Reverse(target, len, characters) => {
             let start = std::time::Instant::now();
 
-            let preimages = joaat::find_preimages(target, len);
+            let preimages = joaat::find_preimages(target, len, characters);
 
             for preimage in preimages {
                 println!("{}", preimage);
@@ -74,7 +86,13 @@ fn parse_args(matches: &ArgMatches) -> Action {
                 panic!("Input length must be greater than 0.");
             }
 
-            Action::Reverse(target, input_length)
+            let characters: Vec<char> = if let Some(chars) = matches.value_of("characters") {
+                chars.chars().collect()
+            } else {
+                ALPHANUM_CHARS.to_owned().to_vec()
+            };
+
+            Action::Reverse(target, input_length, characters)
         } else if has_target && !has_length {
             panic!("You must provide an input length to reverse a hash using the -l argument.");
         } else if has_length && !has_target {

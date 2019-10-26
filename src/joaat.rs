@@ -1,8 +1,5 @@
 use std::num::Wrapping;
-use std::thread::{self, JoinHandle};
-
-const MIN_CHAR: char = 'a';
-const MAX_CHAR: char = 'z';
+use crossbeam::thread;
 
 #[cfg(test)]
 mod tests {
@@ -17,7 +14,7 @@ mod tests {
 
     #[test]
     fn reverse_adder() {
-        assert_eq!(find_preimages(0xb779a091, 5), vec!["adder"]);
+        assert_eq!(find_preimages(0xb779a091, 5, vec!['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z']), vec!["adder"]);
     }
 }
 
@@ -39,7 +36,7 @@ pub fn hash(input: &str) -> u32 {
 }
 
 /// Find all possible pre-images of a length of a hash
-pub fn find_preimages(target: u32, input_length: usize) -> Vec<String> {
+pub fn find_preimages(target: u32, input_length: usize, characters: Vec<char>) -> Vec<String> {
     let mut hash = Wrapping(target);
 
     // undo hash finalization
@@ -47,36 +44,39 @@ pub fn find_preimages(target: u32, input_length: usize) -> Vec<String> {
     hash ^= (hash >> 11) ^ (hash >> 22);
     hash *= Wrapping(0x38E3_8E39); // inverse of hash += hash << 3;
 
-    let max_char = MAX_CHAR as u32;
-    let min_char = MIN_CHAR as u32;
+    let (min_char, max_char) = get_character_bounds(&characters);
 
-    let threads: Vec<JoinHandle<Vec<String>>> = (min_char..=max_char)
-        .map(|c| thread::spawn(move || {
-            let mut output = Vec::new();
+    let characters_ref = &characters;
 
-            let mut buffer = vec!['\0'; input_length];
+    if input_length > 5 {
+        thread::scope(|scope| {
+            let threads: Vec<_> = (min_char..=max_char)
+                .map(|c| scope.spawn(move |_| {
+                    let mut output = Vec::new();
+                    let mut buffer = vec!['\0'; input_length];
 
-            reverse(hash.0, &mut buffer, input_length - 1, Some(c), &mut output);
+                    reverse(hash.0, &mut buffer, input_length - 1, characters_ref, (min_char, max_char), Some(c as u8 as char), &mut output);
 
-            output
-        }))
-        .collect();
+                    output
+                }))
+                .collect();
 
-    let output = threads.into_iter()
-        .map(|handle| handle.join().unwrap())
-        .flatten()
-        .collect();
+            threads.into_iter()
+                .map(|handle| handle.join().unwrap())
+                .flatten()
+                .collect()
+        }).unwrap()
+    } else {
+        let mut output = Vec::new();
+        let mut buffer = vec!['\0'; input_length];
 
-    /*
+        reverse(hash.0, &mut buffer, input_length - 1, characters_ref, (min_char, max_char), None, &mut output);
 
-    let mut buffer = vec!['\0'; input_length];
-
-    reverse_recursive(hash.0, &mut buffer, input_length - 1, &mut output);*/
-
-    output
+        output
+    }
 }
 
-fn reverse(hash: u32, buffer: &mut [char], depth: usize, force_char: Option<u32>, output: &mut Vec<String>) {
+fn reverse(hash: u32, buffer: &mut [char], depth: usize, characters: &[char], (min_char, max_char): (u32, u32), force_char: Option<char>, output: &mut Vec<String>) {
     let mut hash = Wrapping(hash);
 
     // invert the hash mixing step
@@ -84,8 +84,6 @@ fn reverse(hash: u32, buffer: &mut [char], depth: usize, force_char: Option<u32>
     hash *= Wrapping(0xC00F_FC01); // inverse of hash += hash << 10;
 
     // for the lowest three levels, abort early if no solution is possible
-    let max_char = MAX_CHAR as u32;
-    let min_char = MIN_CHAR as u32;
     let hash_val = hash.0;
     match depth {
         0 => {
@@ -101,7 +99,7 @@ fn reverse(hash: u32, buffer: &mut [char], depth: usize, force_char: Option<u32>
             return;
         }
         1 => {
-            if hash_val > max_char * 1043 {
+            if hash_val > max_char * 1_043 {
                 return;
             }
         }
@@ -114,8 +112,8 @@ fn reverse(hash: u32, buffer: &mut [char], depth: usize, force_char: Option<u32>
     }
 
     let mut recur = |ch| {
-        buffer[depth] = ch as u8 as char;
-        reverse((hash - Wrapping(ch)).0, buffer, depth - 1, None, output);
+        buffer[depth] = ch;
+        reverse((hash - Wrapping(ch as u32)).0, buffer, depth - 1, &characters, (min_char, max_char), None, output);
     };
 
     if let Some(force_char) = force_char {
@@ -123,8 +121,15 @@ fn reverse(hash: u32, buffer: &mut [char], depth: usize, force_char: Option<u32>
         recur(force_char);
     } else {
         // try all possible values for this byte
-        for ch in min_char..max_char {
+        for &ch in characters {
             recur(ch);
         }
     }
+}
+
+fn get_character_bounds(characters: &[char]) -> (u32, u32) {
+    (
+        (*characters.iter().min().unwrap()) as u32,
+        (*characters.iter().max().unwrap()) as u32
+    )
 }
