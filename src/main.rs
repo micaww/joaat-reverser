@@ -1,6 +1,9 @@
 mod joaat;
+mod brute;
 
 use clap::{App, Arg, ArgMatches};
+use rayon::prelude::*;
+use rayon::iter::plumbing::Producer;
 
 const ALPHANUM_CHARS: [char; 62] = [
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
@@ -57,11 +60,23 @@ fn main() {
         Action::Reverse(target, len, characters) => {
             let start = std::time::Instant::now();
 
-            let preimages = joaat::find_preimages(target, len, characters);
+            let &min_char = characters.iter().min().unwrap();
+            let &max_char = characters.iter().max().unwrap();
 
-            for preimage in preimages {
-                println!("{}", preimage);
-            }
+            let brute = brute::BruteProducer::new(
+                vec![0; len],
+                vec![(characters.len() - 1) as u8; len],
+                characters
+            );
+
+            let target = joaat::undo_finalization(target);
+
+            let results: Vec<_> = brute
+                .into_iter()
+                .filter(|p| joaat::is_preimage(p, target, &min_char, &max_char))
+                .collect();
+
+            println!("{:?}", results);
 
             println!("Finished! Took {:?}", start.elapsed());
         },
