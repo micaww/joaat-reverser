@@ -1,9 +1,9 @@
 mod joaat;
-mod brute;
 
 use clap::{App, Arg, ArgMatches};
+use base_custom::BaseCustom;
 use rayon::prelude::*;
-use rayon::iter::plumbing::Producer;
+use pad::PadStr;
 
 const ALPHANUM_CHARS: [char; 62] = [
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
@@ -60,23 +60,33 @@ fn main() {
         Action::Reverse(target, len, characters) => {
             let start = std::time::Instant::now();
 
-            let &min_char = characters.iter().min().unwrap();
-            let &max_char = characters.iter().max().unwrap();
+            let base = BaseCustom::<char>::new(Vec::from(&characters[..]));
 
-            let brute = brute::BruteProducer::new(
-                vec![0; len],
-                vec![(characters.len() - 1) as u8; len],
-                characters
-            );
+            let max: String = vec![characters[characters.len() - 1]; len].iter().collect();
 
-            let target = joaat::undo_finalization(target);
+            let max_dec = base.decimal(max);
 
-            let results: Vec<_> = brute
-                .into_iter()
-                .filter(|p| joaat::is_preimage(p, target, &min_char, &max_char))
+            println!("{}", max_dec);
+
+            let unfinalized = joaat::undo_finalization(target);
+
+            let results: Vec<String> = (0..=max_dec)
+                .into_par_iter()
+                .map(|dec| {
+                    let mut padded: String = base.gen(dec);
+
+                    let pad_len = len - padded.len();
+                    if pad_len > 0 {
+                        padded = format!("{}{}", characters[0].to_string().repeat(pad_len), padded);
+                    }
+
+                    padded
+                })
+                .filter(|str| {
+                    joaat::is_preimage(&str, unfinalized)
+                })
                 .collect();
-
-            println!("{:?}", results);
+            println!("Results: {:?}", results);
 
             println!("Finished! Took {:?}", start.elapsed());
         },
